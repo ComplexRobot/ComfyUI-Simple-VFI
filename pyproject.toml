@@ -1,0 +1,15 @@
+[project]
+name = "ComfyUI-Simple-VFI"
+description = "Nodes for simple frame interpolation without the use of AI. Uses standard image operations to blend frames together."
+version = "1.0.0"
+license = "LICENSE"
+dependencies = ["open-clip-torch"]
+
+[project.urls]
+Repository = "https://github.com/ComplexRobot/ComfyUI-Simple-VFI"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = "ComplexRobot"
+DisplayName = "ComfyUI-Simple-VFI"
+Icon = ""
