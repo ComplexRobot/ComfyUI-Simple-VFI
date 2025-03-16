@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 
 from nodes import ImageScale
 from comfy_extras.nodes_post_processing import Blur, Sharpen
