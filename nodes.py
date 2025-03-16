@@ -35,12 +35,12 @@ class Simple_Frame_Interpolation:
         if gaussian_blur and blur_radius != 0 and blur_sigma != 0:
             B2, H2, W2, C2 = images.shape
 
-            images.flatten(1, 2).unsqueeze(2)
+            images.flatten(0, 2).unflatten(0, (W2, H2, 1))
             if blur_sigma > 0:
                 images, = Blur.blur(self, images, blur_radius, blur_sigma)
             elif blur_sigma < 0 :
                 images, = Sharpen.sharpen(self, images, blur_radius, -blur_sigma, sharpen_alpha)
-            images.flatten(1, 2).unflatten(1, (H2, W2))
+            images.flatten(0, 2).unflatten(0, (1, H2, W2))
 
         images = images.flatten(0, 2).unflatten(0, (new_frame_count, H, W))
 
