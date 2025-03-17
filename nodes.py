@@ -1,9 +1,9 @@
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as functional
 
 from nodes import ImageScale
+import comfy.model_management as model_management
 from comfy_extras.nodes_post_processing import Blur, Sharpen
-import comfy.model_management as mm
 
 
 class Simple_Frame_Interpolation:
@@ -30,38 +30,59 @@ class Simple_Frame_Interpolation:
 
     @torch.no_grad()
     def process(self, images, scale_method, multiplier, batch_size, gaussian_blur, blur_radius, blur_sigma, sharpen_alpha):
-        device = mm.get_torch_device()
+        device = model_management.get_torch_device()
+        blur_enabled = gaussian_blur and blur_radius != 0 and blur_sigma != 0
+        scale_batch_size = batch_size * (2 * blur_radius + 1 if blur_enabled else 1)
         B, H, W, C = images.shape
         new_frame_count = max(round(B * multiplier), 1)
 
-        images = images.flatten(0, 2).unflatten(0, (1, B, H * W))
-        images, = ImageScale.upscale(self, images, scale_method, H * W, new_frame_count, crop="disabled")
+        # convert batch into one large image with horizontal dimension = flattened image, vertical dimension = time
+        images = images.reshape(1, B, H * W, C)
+        # transpose for correct memory layout
+        images = images.permute(0, 2, 1, 3)
+        # reshape into batches where batch = single image pixel, vertical = time, horizontal = nothing (interpolate time only)
+        images = images.reshape(H * W, B, 1, C)
 
-        if gaussian_blur and blur_radius != 0 and blur_sigma != 0:
+        # scale images on the time axis (increase or reduce frame count)
+        scaled_list = []
+        for current_image in images.split(scale_batch_size):
+            current_image = current_image.contiguous().to(device)
+            # for lanczos and bislerp, it is faster to pass as a single unbatched image
+            if scale_method == "lanczos" or scale_method == "bislerp":
+                current_image = current_image.reshape(1, current_image.size(0), B, C)
+                current_image = current_image.permute(0, 2, 1, 3)
+                current_image, = ImageScale.upscale(self, current_image, scale_method, current_image.size(-2), new_frame_count, crop="disabled")
+                current_image = current_image.permute(0, 2, 1, 3)
+                current_image = current_image.reshape(current_image.size(1), new_frame_count, 1, C)
+            else:
+                current_image, = ImageScale.upscale(self, current_image, scale_method, 1, new_frame_count, crop="disabled")
+            scaled_list += current_image.cpu().split(1)
+            model_management.throw_exception_if_processing_interrupted()
+        images = torch.stack(scaled_list).squeeze(1).cpu()
+
+        if blur_enabled:
             B2, H2, W2, C2 = images.shape
 
-            images = images.permute(0, 2, 1, 3)
-            images = images.flatten(0, 2).unflatten(0, (W2, H2, 1))
-
-            for i in range(0, W2, batch_size):
-                end = min(i + batch_size, W2)
-                current_image = images[i:end, :, :, :]
+            blurred_list = []
+            for current_image in images.split(batch_size):
+                # add padding so the reflect padding added by blur/sharpen will succeed (inefficient!)
                 current_image = current_image.permute(0, 3, 1, 2).contiguous().to(device)
-                current_image = F.interpolate(current_image, size=(H2, 2 * blur_radius + 1), mode='nearest-exact')
+                current_image = functional.interpolate(current_image, size=(H2, 2 * blur_radius + 1), mode='nearest-exact')
                 current_image = current_image.permute(0, 2, 3, 1)
-                print(f"{i} -> {current_image.shape}")
 
                 if blur_sigma > 0:
                     current_image, = Blur.blur(self, current_image, blur_radius, blur_sigma)
-                elif blur_sigma < 0 :
+                elif blur_sigma < 0:
                     current_image, = Sharpen.sharpen(self, current_image, blur_radius, -blur_sigma, sharpen_alpha)
 
-                images[i:end] = current_image[:, :, blur_radius:-blur_radius, :].cpu()
+                blurred_list += current_image[:, :, blur_radius:-blur_radius, :].cpu().split(1)
+                model_management.throw_exception_if_processing_interrupted()
+            images = torch.stack(blurred_list).squeeze(1).cpu()
 
-            images = images.flatten(0, 2).unflatten(0, (1, W2, H2))
-            images = images.permute(0, 2, 1, 3)
-
-        images = images.flatten(0, 2).unflatten(0, (new_frame_count, H, W))
+        # invert initial operations
+        images = images.reshape(1, H * W, new_frame_count, C)
+        images = images.permute(0, 2, 1, 3)
+        images = images.reshape(new_frame_count, H, W, C)
 
         return (images,)
 
