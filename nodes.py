@@ -1,9 +1,11 @@
 import torch
 import torch.nn.functional as functional
+from tqdm import tqdm
 
 from nodes import ImageScale
 import comfy.model_management as model_management
 from comfy_extras.nodes_post_processing import Blur, Sharpen
+from comfy.utils import ProgressBar
 
 
 class Simple_Frame_Interpolation:
@@ -44,8 +46,9 @@ class Simple_Frame_Interpolation:
         images = images.reshape(H * W, B, 1, C)
 
         # scale images on the time axis (increase or reduce frame count)
+        progress_bar = ProgressBar(H * W * (2 if blur_enabled else 1))
         scaled_list = []
-        for current_image in images.split(scale_batch_size):
+        for current_image in tqdm(images.split(scale_batch_size), f"{scale_method.capitalize()} VFI"):
             current_image = current_image.contiguous().to(device)
             # for lanczos and bislerp, it is faster to pass as a single unbatched image
             if scale_method == "lanczos" or scale_method == "bislerp":
@@ -57,14 +60,15 @@ class Simple_Frame_Interpolation:
             else:
                 current_image, = ImageScale.upscale(self, current_image, scale_method, 1, new_frame_count, crop="disabled")
             scaled_list += current_image.cpu().split(1)
+            progress_bar.update(current_image.size(0))
             model_management.throw_exception_if_processing_interrupted()
         images = torch.stack(scaled_list).squeeze(1).cpu()
 
         if blur_enabled:
             B2, H2, W2, C2 = images.shape
-
+            
             blurred_list = []
-            for current_image in images.split(batch_size):
+            for current_image in tqdm(images.split(batch_size), f"{"Gaussian blur" if blur_sigma > 0 else "Sharpen"} VFI"):
                 # add padding so the reflect padding added by blur/sharpen will succeed (inefficient!)
                 current_image = current_image.permute(0, 3, 1, 2).contiguous().to(device)
                 current_image = functional.interpolate(current_image, size=(H2, 2 * blur_radius + 1), mode='nearest-exact')
@@ -76,6 +80,7 @@ class Simple_Frame_Interpolation:
                     current_image, = Sharpen.sharpen(self, current_image, blur_radius, -blur_sigma, sharpen_alpha)
 
                 blurred_list += current_image[:, :, blur_radius:-blur_radius, :].cpu().split(1)
+                progress_bar.update(current_image.size(0))
                 model_management.throw_exception_if_processing_interrupted()
             images = torch.stack(blurred_list).squeeze(1).cpu()
 
