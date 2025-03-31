@@ -1,7 +1,7 @@
 [project]
 name = "ComfyUI-Simple-VFI"
 description = "Nodes for simple frame interpolation without the use of AI. Uses standard image operations to blend frames together."
-version = "1.0.3"
+version = "1.0.4"
 license = "LICENSE"
 dependencies = ["open-clip-torch"]
 

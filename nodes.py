@@ -16,7 +16,7 @@ class Simple_Frame_Interpolation:
             "images": ("IMAGE", ),
             "scale_method": (s.scale_methods, {"default": "nearest-exact"}),
             "multiplier": ("FLOAT", {"default": 0.5, "min": 0.01, "step": 0.01}),
-            "batch_size": ("INT", { "default": 15, "min": 1, "step": 1 }),
+            "batch_size": ("INT", { "default": 15, "min": 1, "max": 2 ** 63 - 1, "step": 1 }),
             "gaussian_blur": ("BOOLEAN", {"default": True}),
             "blur_radius": ("INT", { "default": 2, "min": 1, "step": 1 }),
             "blur_sigma": ("FLOAT", { "default": 0.3, "min": -10.0, "max": 10.0, "step": 0.1}),
